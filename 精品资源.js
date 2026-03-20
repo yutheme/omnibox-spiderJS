@@ -1,8 +1,8 @@
 // @name 精品资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.3
-// @downloadURL https://github.com/yutheme/omnibox-spiderJS/raw/main/精品资源.js
+// @version 1.0.4
+// @downloadURL https://github.com/yutheme/box-sJS/raw/main/精品资源.js
 
 /**
  * OmniBox 采集站爬虫 - 精品资源

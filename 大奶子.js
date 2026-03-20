@@ -1,8 +1,8 @@
 // @name 大奶子
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.0
-// @downloadURL https://github.com/yutheme/omnibox-spiderJS/raw/main/大奶子.js
+// @version 1.0.1
+// @downloadURL https://github.com/yutheme/box-sJS/raw/main/大奶子.js
 
 /**
  * OmniBox 采集站爬虫 - 大奶子

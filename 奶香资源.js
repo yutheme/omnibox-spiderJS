@@ -1,8 +1,8 @@
 // @name 奶香资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.0
-// @downloadURL https://github.com/yutheme/omnibox-spiderJS/raw/main/奶香资源.js
+// @version 1.0.1
+// @downloadURL https://github.com/yutheme/box-sJS/raw/main/奶香资源.js
 
 /**
  * OmniBox 采集站爬虫 - 奶香资源
