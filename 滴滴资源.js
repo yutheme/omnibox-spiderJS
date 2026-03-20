@@ -17,7 +17,7 @@
  */
 
 // 引入公共模块
-const common = require("./common");
+const common = require("https://github.com/yutheme/omnibox-spiderJS/raw/main/common.js");
 
 // 配置爬虫参数
 common.configureSpider({
