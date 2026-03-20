@@ -1,7 +1,7 @@
 // @name 精品资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.0
+// @version 1.0.2
 // @downloadURL https://github.com/yutheme/omnibox-spiderJS/raw/main/精品资源.js
 
 /**
@@ -25,7 +25,7 @@ common.configureSpider({
   DANMU_API: "http://192.168.0.123:9321/87654321",
   name: "精品资源",
   author: "vscode",
-  version: "1.0.0",
+  version: "1.0.2",
   description: "刮削：支持，弹幕：支持，嗅探：支持",
   downloadURL: "https://github.com/yutheme/omnibox-spiderJS/raw/main/精品资源.js"
 });
