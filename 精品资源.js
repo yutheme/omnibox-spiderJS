@@ -2,7 +2,7 @@
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
 // @version 1.0.0
-// @downloadURL https://github.com/Silent1566/omnibox-spiderJS/raw/main/资源模板.js 
+// @downloadURL https://github.com/Silent1566/omnibox-spiderJS/raw/main/精品资源.js 
 /**
  * OmniBox 采集站直接爬虫脚本
  *
