@@ -1,7 +1,7 @@
 // @name 精品资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.4
+// @version 1.0.5
 // @downloadURL https://github.com/yutheme/box-sJS/raw/main/精品资源.js
 
 /**
@@ -45,7 +45,15 @@ async function requestSiteAPI(params = {}) {
     if (response.statusCode !== 200) {
       throw new Error(`HTTP ${response.statusCode}: ${response.body}`);
     }
-    return JSON.parse(response.body);
+    if (!response.body) {
+      throw new Error("响应体为空");
+    }
+    try {
+      return JSON.parse(response.body);
+    } catch (parseError) {
+      OmniBox.log("error", `JSON 解析失败: ${parseError.message}, 响应内容: ${response.body.substring(0, 200)}`);
+      throw new Error(`JSON 解析失败: ${parseError.message}`);
+    }
   } catch (error) {
     OmniBox.log("error", `请求采集站失败: ${error.message}`);
     throw error;
@@ -61,22 +69,28 @@ function toInt(value) {
   return 0;
 }
 
+function processPlayFrom(vodPlayFrom, vodId) {
+  if (!vodPlayFrom || !vodId) return vodPlayFrom;
+  if (vodPlayFrom.includes("$$$")) {
+    const lines = vodPlayFrom.split("$$$");
+    const processedLines = lines
+      .map((line) => { const t = line.trim(); return t ? `${t}-${vodId}` : t; })
+      .filter((line) => line);
+    return processedLines.join("$$$");
+  }
+  return `${vodPlayFrom}-${vodId}`;
+}
+
 function formatVideos(list) {
   if (!Array.isArray(list)) return [];
   return list
     .map((item) => {
       if (typeof item !== "object" || item === null) return null;
       const vodId = String(item.vod_id || item.VodID || "");
-      let vodPlayFrom = String(item.vod_play_from || item.VodPlayFrom || "");
-      if (vodPlayFrom && vodId && vodPlayFrom.includes("$$$")) {
-        const lines = vodPlayFrom.split("$$$");
-        const processedLines = lines
-          .map((line) => { const t = line.trim(); return t ? `${t}-${vodId}` : t; })
-          .filter((line) => line);
-        vodPlayFrom = processedLines.join("$$$");
-      } else if (vodPlayFrom && vodId) {
-        vodPlayFrom = `${vodPlayFrom}-${vodId}`;
-      }
+      const vodPlayFrom = processPlayFrom(
+        String(item.vod_play_from || item.VodPlayFrom || ""),
+        vodId
+      );
       return {
         vod_id: vodId,
         vod_name: String(item.vod_name || item.VodName || ""),
@@ -133,16 +147,10 @@ function formatDetailVideos(list) {
       if (typeof item !== "object" || item === null) return null;
       const content = String(item.vod_content || item.VodContent || "").trim();
       const vodId = String(item.vod_id || item.VodID || "");
-      let vodPlayFrom = String(item.vod_play_from || item.VodPlayFrom || "");
-      if (vodPlayFrom && vodId && vodPlayFrom.includes("$$$")) {
-        const lines = vodPlayFrom.split("$$$");
-        const processedLines = lines
-          .map((line) => { const t = line.trim(); return t ? `${t}-${vodId}` : t; })
-          .filter((line) => line);
-        vodPlayFrom = processedLines.join("$$$");
-      } else if (vodPlayFrom && vodId) {
-        vodPlayFrom = `${vodPlayFrom}-${vodId}`;
-      }
+      const vodPlayFrom = processPlayFrom(
+        String(item.vod_play_from || item.VodPlayFrom || ""),
+        vodId
+      );
       const vodPlayUrl = String(item.vod_play_url || item.VodPlayURL || "");
       const vodPlaySources = convertToPlaySources(vodPlayFrom, vodPlayUrl, vodId);
       return {
@@ -292,6 +300,47 @@ function extractVideoIdFromFlag(flag) {
   return "";
 }
 
+async function inferFileNameFromDetail(videoId, playId) {
+  try {
+    const detailResponse = await requestSiteAPI({ ac: "detail", ids: videoId });
+    if (!detailResponse.list || detailResponse.list.length === 0) return "";
+    
+    const video = detailResponse.list[0];
+    const videoName = video.vod_name || video.VodName || "";
+    const playURL = video.vod_play_url || video.VodPlayURL || "";
+    
+    if (!videoName || !playURL) return "";
+    
+    const segments = playURL.split("#").filter((s) => s.trim());
+    if (segments.length === 1) {
+      return videoName;
+    }
+    
+    let epNum = 0;
+    for (let idx = 0; idx < segments.length; idx++) {
+      const seg = segments[idx];
+      const parts = seg.split("$");
+      if (parts.length >= 2) {
+        const epLabel = parts[0].trim();
+        const epURL = parts[1].trim();
+        if (epURL === playId || epURL.includes(playId) || playId.includes(epURL)) {
+          const digits = extractDigits(epLabel);
+          epNum = digits ? parseInt(digits, 10) : idx + 1;
+          break;
+        }
+      }
+    }
+    
+    if (epNum > 0) {
+      return epNum < 10 ? `${videoName} S01E0${epNum}` : `${videoName} S01E${epNum}`;
+    }
+    return videoName;
+  } catch (error) {
+    OmniBox.log("warn", `获取详情失败，无法推断集数: ${error.message}`);
+    return "";
+  }
+}
+
 async function home(params) {
   try {
     OmniBox.log("info", "获取首页数据");
@@ -383,56 +432,28 @@ async function play(params) {
     const playId = params.playId;
     const flag = params.flag || "";
     if (!playId) throw new Error("播放地址ID不能为空");
+    
     const videoId = extractVideoIdFromFlag(flag);
     OmniBox.log("info", `获取播放地址: playId=${playId}, flag=${flag}, videoId=${videoId}`);
-    let urlsResult = [{ name: "播放", url: playId }];
-    let parse = 1;
-    if (/\.(m3u8|mp4)$/.test(playId)) parse = 0;
-    let playResponse = { urls: urlsResult, flag: flag, header: {}, parse: parse };
+    
+    const parse = /\.(m3u8|mp4)$/.test(playId) ? 0 : 1;
+    let playResponse = { 
+      urls: [{ name: "播放", url: playId }], 
+      flag: flag, 
+      header: {}, 
+      parse: parse 
+    };
+    
     if (DANMU_API && videoId) {
-      let fileName = "";
-      try {
-        const detailResponse = await requestSiteAPI({ ac: "detail", ids: videoId });
-        if (detailResponse.list && detailResponse.list.length > 0) {
-          const video = detailResponse.list[0];
-          const videoName = video.vod_name || video.VodName || "";
-          const playURL = video.vod_play_url || video.VodPlayURL || "";
-          if (videoName && playURL) {
-            const segments = playURL.split("#").filter((s) => s.trim());
-            if (segments.length === 1) {
-              fileName = videoName;
-            } else {
-              let epNum = 0;
-              for (let idx = 0; idx < segments.length; idx++) {
-                const seg = segments[idx];
-                const parts = seg.split("$");
-                if (parts.length >= 2) {
-                  const epLabel = parts[0].trim();
-                  const epURL = parts[1].trim();
-                  if (epURL === playId || epURL.includes(playId) || playId.includes(epURL)) {
-                    const digits = extractDigits(epLabel);
-                    epNum = digits ? parseInt(digits, 10) : idx + 1;
-                    break;
-                  }
-                }
-              }
-              if (epNum > 0) {
-                fileName = epNum < 10 ? `${videoName} S01E0${epNum}` : `${videoName} S01E${epNum}`;
-              } else {
-                fileName = videoName;
-              }
-            }
-          }
-        }
-      } catch (error) {
-        OmniBox.log("warn", `获取详情失败，无法推断集数: ${error.message}`);
-      }
+      let fileName = await inferFileNameFromDetail(videoId, playId);
       if (!fileName) fileName = inferFileNameFromURL(playId);
+      
       if (fileName) {
         const danmakuList = await matchDanmu(fileName);
         if (danmakuList.length > 0) playResponse.danmaku = danmakuList;
       }
     }
+    
     return playResponse;
   } catch (error) {
     OmniBox.log("error", `获取播放地址失败: ${error.message}`);
@@ -442,5 +463,7 @@ async function play(params) {
 
 module.exports = { home, category, search, detail, play };
 
-const runner = require("spider_runner");
-runner.run(module.exports);
+if (require.main === module) {
+  const runner = require("spider_runner");
+  runner.run(module.exports);
+}
