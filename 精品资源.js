@@ -1,7 +1,7 @@
 // @name 精品资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.6
+// @version 1.0.7
 // @downloadURL https://github.com/yutheme/box-sJS/raw/main/精品资源.js
 
 /**
@@ -42,7 +42,8 @@ async function requestSiteAPI(params = {}) {
       method: "GET",
       headers: { 
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept-Charset": "utf-8,gbk,gb2312"
+        "Accept": "application/json",
+        "Accept-Charset": "utf-8"
       },
     });
     if (response.statusCode !== 200) {
@@ -52,18 +53,11 @@ async function requestSiteAPI(params = {}) {
       throw new Error("响应体为空");
     }
     try {
-      // 尝试直接解析
+      // 直接解析，相信服务器返回的是正确的 JSON
       return JSON.parse(response.body);
     } catch (parseError) {
-      // 可能是编码问题，尝试修复乱码
-      OmniBox.log("warn", `JSON 解析失败，尝试处理编码: ${parseError.message}`);
-      try {
-        // 尝试使用不同编码解码
-        return JSON.parse(fixEncoding(response.body));
-      } catch (secondError) {
-        OmniBox.log("error", `JSON 解析失败: ${secondError.message}, 响应内容: ${response.body.substring(0, 200)}`);
-        throw new Error(`JSON 解析失败: ${secondError.message}`);
-      }
+      OmniBox.log("error", `JSON 解析失败: ${parseError.message}, 响应内容: ${response.body.substring(0, 200)}`);
+      throw new Error(`JSON 解析失败: ${parseError.message}`);
     }
   } catch (error) {
     OmniBox.log("error", `请求采集站失败: ${error.message}`);
@@ -82,18 +76,21 @@ function toInt(value) {
 
 function fixEncoding(str) {
   if (typeof str !== "string") return str;
+  
+  // 检查是否包含乱码特征
+  const hasGarbled = /[\x80-\xFF]{2,}/.test(str);
+  if (!hasGarbled) {
+    // 没有乱码特征，直接返回
+    return str;
+  }
+  
+  // 尝试修复乱码
   try {
-    // 尝试修复常见的编码问题
-    // 1. 处理 UTF-8 编码的乱码
+    // 处理 ISO-8859-1 编码的中文
     return decodeURIComponent(escape(str));
   } catch (e) {
-    try {
-      // 2. 处理 GBK/GB2312 编码
-      return unescape(encodeURIComponent(str));
-    } catch (e2) {
-      // 3. 如果都失败，返回原始字符串
-      return str;
-    }
+    // 如果失败，返回原始字符串
+    return str;
   }
 }
 
@@ -207,10 +204,17 @@ function formatClasses(classes) {
     if (typeof cls !== "object" || cls === null) continue;
     const typeId = String(cls.type_id || cls.TypeID || "");
     const typePid = String(cls.type_pid || cls.TypePID || "");
-    const typeName = fixEncoding(String(cls.type_name || cls.TypeName || "")).trim();
+    const originalTypeName = String(cls.type_name || cls.TypeName || "");
+    const fixedTypeName = fixEncoding(originalTypeName).trim();
+    
+    // 添加调试日志
+    if (originalTypeName !== fixedTypeName) {
+      OmniBox.log("info", `修复分类名称编码: 原始='${originalTypeName}', 修复后='${fixedTypeName}'`);
+    }
+    
     if (!typeId || seen.has(typeId)) continue;
     seen.add(typeId);
-    result.push({ type_id: typeId, type_pid: typePid, type_name: typeName });
+    result.push({ type_id: typeId, type_pid: typePid, type_name: fixedTypeName });
   }
   return result;
 }
