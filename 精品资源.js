@@ -1,7 +1,7 @@
 // @name 精品资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.5
+// @version 1.0.6
 // @downloadURL https://github.com/yutheme/box-sJS/raw/main/精品资源.js
 
 /**
@@ -40,7 +40,10 @@ async function requestSiteAPI(params = {}) {
   try {
     const response = await OmniBox.request(url.toString(), {
       method: "GET",
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      headers: { 
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Charset": "utf-8,gbk,gb2312"
+      },
     });
     if (response.statusCode !== 200) {
       throw new Error(`HTTP ${response.statusCode}: ${response.body}`);
@@ -49,10 +52,18 @@ async function requestSiteAPI(params = {}) {
       throw new Error("响应体为空");
     }
     try {
+      // 尝试直接解析
       return JSON.parse(response.body);
     } catch (parseError) {
-      OmniBox.log("error", `JSON 解析失败: ${parseError.message}, 响应内容: ${response.body.substring(0, 200)}`);
-      throw new Error(`JSON 解析失败: ${parseError.message}`);
+      // 可能是编码问题，尝试修复乱码
+      OmniBox.log("warn", `JSON 解析失败，尝试处理编码: ${parseError.message}`);
+      try {
+        // 尝试使用不同编码解码
+        return JSON.parse(fixEncoding(response.body));
+      } catch (secondError) {
+        OmniBox.log("error", `JSON 解析失败: ${secondError.message}, 响应内容: ${response.body.substring(0, 200)}`);
+        throw new Error(`JSON 解析失败: ${secondError.message}`);
+      }
     }
   } catch (error) {
     OmniBox.log("error", `请求采集站失败: ${error.message}`);
@@ -67,6 +78,23 @@ function toInt(value) {
     return isNaN(num) ? 0 : num;
   }
   return 0;
+}
+
+function fixEncoding(str) {
+  if (typeof str !== "string") return str;
+  try {
+    // 尝试修复常见的编码问题
+    // 1. 处理 UTF-8 编码的乱码
+    return decodeURIComponent(escape(str));
+  } catch (e) {
+    try {
+      // 2. 处理 GBK/GB2312 编码
+      return unescape(encodeURIComponent(str));
+    } catch (e2) {
+      // 3. 如果都失败，返回原始字符串
+      return str;
+    }
+  }
 }
 
 function processPlayFrom(vodPlayFrom, vodId) {
@@ -93,12 +121,12 @@ function formatVideos(list) {
       );
       return {
         vod_id: vodId,
-        vod_name: String(item.vod_name || item.VodName || ""),
+        vod_name: fixEncoding(String(item.vod_name || item.VodName || "")),
         vod_pic: String(item.vod_pic || item.VodPic || ""),
         type_id: String(item.type_id || item.TypeID || ""),
-        type_name: String(item.type_name || item.TypeName || ""),
+        type_name: fixEncoding(String(item.type_name || item.TypeName || "")),
         vod_year: String(item.vod_year || item.VodYear || ""),
-        vod_remarks: String(item.vod_remarks || item.VodRemarks || ""),
+        vod_remarks: fixEncoding(String(item.vod_remarks || item.VodRemarks || "")),
         vod_time: String(item.vod_time || item.VodTime || ""),
         vod_play_from: vodPlayFrom,
         vod_play_url: String(item.vod_play_url || item.VodPlayURL || ""),
@@ -145,7 +173,7 @@ function formatDetailVideos(list) {
   return list
     .map((item) => {
       if (typeof item !== "object" || item === null) return null;
-      const content = String(item.vod_content || item.VodContent || "").trim();
+      const content = fixEncoding(String(item.vod_content || item.VodContent || "")).trim();
       const vodId = String(item.vod_id || item.VodID || "");
       const vodPlayFrom = processPlayFrom(
         String(item.vod_play_from || item.VodPlayFrom || ""),
@@ -155,14 +183,14 @@ function formatDetailVideos(list) {
       const vodPlaySources = convertToPlaySources(vodPlayFrom, vodPlayUrl, vodId);
       return {
         vod_id: vodId,
-        vod_name: String(item.vod_name || item.VodName || ""),
+        vod_name: fixEncoding(String(item.vod_name || item.VodName || "")),
         vod_pic: String(item.vod_pic || item.VodPic || ""),
-        type_name: String(item.type_name || item.TypeName || ""),
+        type_name: fixEncoding(String(item.type_name || item.TypeName || "")),
         vod_year: String(item.vod_year || item.VodYear || ""),
-        vod_area: String(item.vod_area || item.VodArea || ""),
-        vod_remarks: String(item.vod_remarks || item.VodRemarks || ""),
-        vod_actor: String(item.vod_actor || item.VodActor || ""),
-        vod_director: String(item.vod_director || item.VodDirector || ""),
+        vod_area: fixEncoding(String(item.vod_area || item.VodArea || "")),
+        vod_remarks: fixEncoding(String(item.vod_remarks || item.VodRemarks || "")),
+        vod_actor: fixEncoding(String(item.vod_actor || item.VodActor || "")),
+        vod_director: fixEncoding(String(item.vod_director || item.VodDirector || "")),
         vod_content: content,
         vod_play_sources: vodPlaySources.length > 0 ? vodPlaySources : undefined,
         vod_douban_score: String(item.vod_douban_score || item.VodDoubanScore || ""),
@@ -179,7 +207,7 @@ function formatClasses(classes) {
     if (typeof cls !== "object" || cls === null) continue;
     const typeId = String(cls.type_id || cls.TypeID || "");
     const typePid = String(cls.type_pid || cls.TypePID || "");
-    const typeName = String(cls.type_name || cls.TypeName || "").trim();
+    const typeName = fixEncoding(String(cls.type_name || cls.TypeName || "")).trim();
     if (!typeId || seen.has(typeId)) continue;
     seen.add(typeId);
     result.push({ type_id: typeId, type_pid: typePid, type_name: typeName });
