@@ -12,7 +12,7 @@ SITE_API="https://your-site.com/api" node 资源模板.js
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |
-|---------|--------|------|
+| --- | --- | --- |
 | `SITE_API` | - | 目标资源站 API 地址（必填） |
 | `DANMU_API` | - | 弹幕服务 API 地址（可选） |
 | `REQUEST_TIMEOUT_MS` | `5000` | 请求超时时间（毫秒） |
@@ -26,7 +26,7 @@ SITE_API="https://your-site.com/api" node 资源模板.js
 ## 接口
 
 | 接口 | 说明 |
-|-----|------|
+| --- | --- |
 | `home` | 首页数据（分类 + 视频列表） |
 | `category` | 分类视频列表 |
 | `search` | 搜索视频 |
