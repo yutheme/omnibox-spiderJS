@@ -1,7 +1,7 @@
 // @name 奶香资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.1
+// @version 1.0.8
 // @downloadURL https://github.com/yutheme/box-sJS/raw/main/奶香资源.js
 
 /**
@@ -61,30 +61,58 @@ function toInt(value) {
   return 0;
 }
 
+function normalizePage(page) {
+  const p = toInt(page);
+  return p < 1 ? 1 : p;
+}
+
+function fixEncoding(str) {
+  if (typeof str !== "string") return str;
+  
+  const hasGarbled = /[\x80-\xFF]{2,}/.test(str);
+  if (!hasGarbled) return str;
+  
+  try {
+    const latin1Buffer = Buffer.from(str, "latin1");
+    if (latin1Buffer.toString("utf8") !== str) {
+      return latin1Buffer.toString("utf8");
+    }
+    return str;
+  } catch (e) {
+    return str;
+  }
+}
+
+function processPlayFrom(vodPlayFrom, vodId) {
+  if (!vodPlayFrom || !vodId) return vodPlayFrom;
+  if (vodPlayFrom.includes("$$$")) {
+    const lines = vodPlayFrom.split("$$$");
+    const processedLines = lines
+      .map((line) => { const t = line.trim(); return t ? `${t}-${vodId}` : t; })
+      .filter((line) => line);
+    return processedLines.join("$$$");
+  }
+  return `${vodPlayFrom}-${vodId}`;
+}
+
 function formatVideos(list) {
   if (!Array.isArray(list)) return [];
   return list
     .map((item) => {
       if (typeof item !== "object" || item === null) return null;
       const vodId = String(item.vod_id || item.VodID || "");
-      let vodPlayFrom = String(item.vod_play_from || item.VodPlayFrom || "");
-      if (vodPlayFrom && vodId && vodPlayFrom.includes("$$$")) {
-        const lines = vodPlayFrom.split("$$$");
-        const processedLines = lines
-          .map((line) => { const t = line.trim(); return t ? `${t}-${vodId}` : t; })
-          .filter((line) => line);
-        vodPlayFrom = processedLines.join("$$$");
-      } else if (vodPlayFrom && vodId) {
-        vodPlayFrom = `${vodPlayFrom}-${vodId}`;
-      }
+      const vodPlayFrom = processPlayFrom(
+        String(item.vod_play_from || item.VodPlayFrom || ""),
+        vodId
+      );
       return {
         vod_id: vodId,
-        vod_name: String(item.vod_name || item.VodName || ""),
+        vod_name: fixEncoding(String(item.vod_name || item.VodName || "")),
         vod_pic: String(item.vod_pic || item.VodPic || ""),
         type_id: String(item.type_id || item.TypeID || ""),
-        type_name: String(item.type_name || item.TypeName || ""),
+        type_name: fixEncoding(String(item.type_name || item.TypeName || "")),
         vod_year: String(item.vod_year || item.VodYear || ""),
-        vod_remarks: String(item.vod_remarks || item.VodRemarks || ""),
+        vod_remarks: fixEncoding(String(item.vod_remarks || item.VodRemarks || "")),
         vod_time: String(item.vod_time || item.VodTime || ""),
         vod_play_from: vodPlayFrom,
         vod_play_url: String(item.vod_play_url || item.VodPlayURL || ""),
@@ -131,30 +159,24 @@ function formatDetailVideos(list) {
   return list
     .map((item) => {
       if (typeof item !== "object" || item === null) return null;
-      const content = String(item.vod_content || item.VodContent || "").trim();
+      const content = fixEncoding(String(item.vod_content || item.VodContent || "")).trim();
       const vodId = String(item.vod_id || item.VodID || "");
-      let vodPlayFrom = String(item.vod_play_from || item.VodPlayFrom || "");
-      if (vodPlayFrom && vodId && vodPlayFrom.includes("$$$")) {
-        const lines = vodPlayFrom.split("$$$");
-        const processedLines = lines
-          .map((line) => { const t = line.trim(); return t ? `${t}-${vodId}` : t; })
-          .filter((line) => line);
-        vodPlayFrom = processedLines.join("$$$");
-      } else if (vodPlayFrom && vodId) {
-        vodPlayFrom = `${vodPlayFrom}-${vodId}`;
-      }
+      const vodPlayFrom = processPlayFrom(
+        String(item.vod_play_from || item.VodPlayFrom || ""),
+        vodId
+      );
       const vodPlayUrl = String(item.vod_play_url || item.VodPlayURL || "");
       const vodPlaySources = convertToPlaySources(vodPlayFrom, vodPlayUrl, vodId);
       return {
         vod_id: vodId,
-        vod_name: String(item.vod_name || item.VodName || ""),
+        vod_name: fixEncoding(String(item.vod_name || item.VodName || "")),
         vod_pic: String(item.vod_pic || item.VodPic || ""),
-        type_name: String(item.type_name || item.TypeName || ""),
+        type_name: fixEncoding(String(item.type_name || item.TypeName || "")),
         vod_year: String(item.vod_year || item.VodYear || ""),
-        vod_area: String(item.vod_area || item.VodArea || ""),
-        vod_remarks: String(item.vod_remarks || item.VodRemarks || ""),
-        vod_actor: String(item.vod_actor || item.VodActor || ""),
-        vod_director: String(item.vod_director || item.VodDirector || ""),
+        vod_area: fixEncoding(String(item.vod_area || item.VodArea || "")),
+        vod_remarks: fixEncoding(String(item.vod_remarks || item.VodRemarks || "")),
+        vod_actor: fixEncoding(String(item.vod_actor || item.VodActor || "")),
+        vod_director: fixEncoding(String(item.vod_director || item.VodDirector || "")),
         vod_content: content,
         vod_play_sources: vodPlaySources.length > 0 ? vodPlaySources : undefined,
         vod_douban_score: String(item.vod_douban_score || item.VodDoubanScore || ""),
