@@ -1,7 +1,7 @@
 // @name 精品资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.7
+// @version 1.0.8
 // @downloadURL https://github.com/yutheme/box-sJS/raw/main/精品资源.js
 
 /**
@@ -74,22 +74,24 @@ function toInt(value) {
   return 0;
 }
 
+function normalizePage(page) {
+  const p = toInt(page);
+  return p < 1 ? 1 : p;
+}
+
 function fixEncoding(str) {
   if (typeof str !== "string") return str;
   
-  // 检查是否包含乱码特征
   const hasGarbled = /[\x80-\xFF]{2,}/.test(str);
-  if (!hasGarbled) {
-    // 没有乱码特征，直接返回
-    return str;
-  }
+  if (!hasGarbled) return str;
   
-  // 尝试修复乱码
   try {
-    // 处理 ISO-8859-1 编码的中文
-    return decodeURIComponent(escape(str));
+    const latin1Buffer = Buffer.from(str, "latin1");
+    if (latin1Buffer.toString("utf8") !== str) {
+      return latin1Buffer.toString("utf8");
+    }
+    return str;
   } catch (e) {
-    // 如果失败，返回原始字符串
     return str;
   }
 }
@@ -376,8 +378,8 @@ async function inferFileNameFromDetail(videoId, playId) {
 async function home(params) {
   try {
     OmniBox.log("info", "获取首页数据");
-    const page = params.page || "1";
-    let response = await requestSiteAPI({ ac: "list", pg: page });
+    const page = normalizePage(params?.page);
+    let response = await requestSiteAPI({ ac: "list", pg: String(page) });
     if (!response.class || (Array.isArray(response.class) && response.class.length === 0)) {
       try {
         const classResponse = await requestSiteAPI({ ac: "class" });
@@ -397,10 +399,13 @@ async function home(params) {
 }
 
 async function category(params) {
+  const defaultResult = { page: 1, pagecount: 0, total: 0, list: [] };
   try {
-    const categoryId = params.categoryId;
-    const page = params.page || 1;
-    if (!categoryId) throw new Error("分类ID不能为空");
+    const categoryId = params?.categoryId;
+    const page = normalizePage(params?.page);
+    if (!categoryId) {
+      throw new Error("分类ID不能为空");
+    }
     OmniBox.log("info", `获取分类数据: categoryId=${categoryId}, page=${page}`);
     const response = await requestSiteAPI({ ac: "videolist", t: categoryId, pg: String(page) });
     const videos = formatVideos(response.list || []);
@@ -412,33 +417,38 @@ async function category(params) {
     };
   } catch (error) {
     OmniBox.log("error", `获取分类数据失败: ${error.message}`);
-    return { page: 1, pagecount: 0, total: 0, list: [] };
+    return defaultResult;
   }
 }
 
 async function detail(params) {
+  const defaultResult = { list: [] };
   try {
-    const videoId = params.videoId;
-    if (!videoId) throw new Error("视频ID不能为空");
+    const videoId = params?.videoId;
+    if (!videoId) {
+      throw new Error("视频ID不能为空");
+    }
     OmniBox.log("info", `获取视频详情: videoId=${videoId}`);
     const response = await requestSiteAPI({ ac: "detail", ids: videoId });
     const videos = formatDetailVideos(response.list || []);
     return { list: videos };
   } catch (error) {
     OmniBox.log("error", `获取视频详情失败: ${error.message}`);
-    return { list: [] };
+    return defaultResult;
   }
 }
 
 async function search(params) {
+  const defaultResult = { page: 1, pagecount: 0, total: 0, list: [] };
   try {
-    const keyword = params.keyword || params.wd || "";
-    const page = params.page || 1;
-    if (!keyword) return { page: 1, pagecount: 0, total: 0, list: [] };
+    const keyword = params?.keyword || params?.wd || "";
+    const page = normalizePage(params?.page);
+    if (!keyword) return defaultResult;
     OmniBox.log("info", `搜索视频: keyword=${keyword}, page=${page}`);
     const response = await requestSiteAPI({ ac: "list", wd: keyword, pg: String(page) });
     let videos = formatVideos(response.list || []);
-    if (videos.length > 0 && (!videos[0].vod_pic || videos[0].vod_pic === "")) {
+    const needsDetail = videos.length > 0 && (!videos[0].vod_pic || videos[0].vod_pic === "");
+    if (needsDetail) {
       try {
         const videoIDs = videos.map((v) => v.vod_id);
         const detailResponse = await requestSiteAPI({ ac: "detail", ids: videoIDs.join(",") });
@@ -455,15 +465,18 @@ async function search(params) {
     };
   } catch (error) {
     OmniBox.log("error", `搜索视频失败: ${error.message}`);
-    return { page: 1, pagecount: 0, total: 0, list: [] };
+    return defaultResult;
   }
 }
 
 async function play(params) {
+  const defaultResult = { urls: [], flag: "", header: {} };
   try {
-    const playId = params.playId;
-    const flag = params.flag || "";
-    if (!playId) throw new Error("播放地址ID不能为空");
+    const playId = params?.playId;
+    const flag = params?.flag || "";
+    if (!playId) {
+      throw new Error("播放地址ID不能为空");
+    }
     
     const videoId = extractVideoIdFromFlag(flag);
     OmniBox.log("info", `获取播放地址: playId=${playId}, flag=${flag}, videoId=${videoId}`);
@@ -489,7 +502,7 @@ async function play(params) {
     return playResponse;
   } catch (error) {
     OmniBox.log("error", `获取播放地址失败: ${error.message}`);
-    return { urls: [], flag: params.flag || "", header: {} };
+    return { ...defaultResult, flag: params?.flag || "" };
   }
 }
 
