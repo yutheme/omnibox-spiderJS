@@ -1,7 +1,7 @@
 // @name 精品资源
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.9
+// @version 1.0.9.1
 // @downloadURL https://github.com/yutheme/box-sJS/raw/main/精品资源.js
 
 /**
@@ -19,7 +19,7 @@
 const OmniBox = require("omnibox_sdk");
 
 // ==================== 配置区域 ====================
-const SITE_API = process.env.SITE_API || "https://www.jingpinx.com/api.php/provide/vod/";
+const SITE_API = process.env.SITE_API || "https://pz.v88.qzz.io/?url=https://www.jingpinx.com/api.php/provide/vod/";
 const DANMU_API = process.env.DANMU_API || "http://192.168.0.123:9321/87654321";
 // ==================== 配置区域结束 ====================
 
