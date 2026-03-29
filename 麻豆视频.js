@@ -1,7 +1,7 @@
 // @name 麻豆视频
 // @author vscode
 // @description 刮削：支持，弹幕：支持，嗅探：支持
-// @version 1.0.8
+// @version 1.1.0
 // @downloadURL https://github.com/yutheme/box-sJS/raw/main/麻豆视频.js
 
 /**
@@ -23,7 +23,27 @@ const SITE_API = process.env.SITE_API || "https://91md.me/api.php/provide/vod";
 const DANMU_API = process.env.DANMU_API || "http://192.168.0.123:9321/87654321";
 // ==================== 配置区域结束 ====================
 
-async function requestSiteAPI(params = {}) {
+// ==================== 缓存区域 ====================
+const cache = {
+  videoDetails: new Map(),
+  danmu: new Map()
+};
+const CACHE_TTL = 5 * 60 * 1000; // 缓存5分钟
+// ==================== 缓存区域结束 ====================
+
+/**
+ * 统一错误处理函数
+ */
+function handleError(error, context, defaultResult) {
+  const errorMessage = `[${context}] ${error.message}`;
+  OmniBox.log("error", errorMessage);
+  return defaultResult;
+}
+
+/**
+ * 发送 HTTP 请求到采集站
+ */
+async function requestSiteAPI(params = {}, retryCount = 3) {
   if (!SITE_API) {
     throw new Error("请配置采集站 API 地址（SITE_API 环境变量）");
   }
@@ -42,6 +62,7 @@ async function requestSiteAPI(params = {}) {
         "Accept": "application/json",
         "Accept-Charset": "utf-8"
       },
+      timeout: 10000,
     });
     if (response.statusCode !== 200) {
       throw new Error(`HTTP ${response.statusCode}: ${response.body}`);
@@ -57,6 +78,11 @@ async function requestSiteAPI(params = {}) {
     }
   } catch (error) {
     OmniBox.log("error", `请求采集站失败: ${error.message}`);
+    if (retryCount > 0) {
+      OmniBox.log("info", `重试请求 (${3 - retryCount + 1}/3)`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return requestSiteAPI(params, retryCount - 1);
+    }
     throw error;
   }
 }
@@ -77,8 +103,10 @@ function normalizePage(page) {
 
 function fixEncoding(str) {
   if (typeof str !== "string") return str;
-  const hasGarbled = /[\x80-\xFF]{2,}/.test(str);
+  
+  const hasGarbled = /[\x80-\xFF]{2,}/.test(str) && !/[\u4e00-\u9fa5]/.test(str);
   if (!hasGarbled) return str;
+  
   try {
     const latin1Buffer = Buffer.from(str, "latin1");
     if (latin1Buffer.toString("utf8") !== str) {
@@ -202,9 +230,12 @@ function formatClasses(classes) {
     const typePid = String(cls.type_pid || cls.TypePID || "");
     const originalTypeName = String(cls.type_name || cls.TypeName || "");
     const fixedTypeName = fixEncoding(originalTypeName).trim();
+    
+    // 添加调试日志
     if (originalTypeName !== fixedTypeName) {
       OmniBox.log("info", `修复分类名称编码: 原始='${originalTypeName}', 修复后='${fixedTypeName}'`);
     }
+    
     if (!typeId || seen.has(typeId)) continue;
     seen.add(typeId);
     result.push({ type_id: typeId, type_pid: typePid, type_name: fixedTypeName });
@@ -223,7 +254,7 @@ async function enrichVideosWithDetails(videos) {
     }
   }
   if (videoIDs.length === 0) return videos;
-  const batchSize = 20;
+  const batchSize = Math.min(20, videoIDs.length);
   for (let i = 0; i < videoIDs.length; i += batchSize) {
     const end = Math.min(i + batchSize, videoIDs.length);
     const batchIDs = videoIDs.slice(i, end);
@@ -259,6 +290,17 @@ async function enrichVideosWithDetails(videos) {
 
 async function matchDanmu(fileName) {
   if (!DANMU_API || !fileName) return [];
+  
+  if (cache.danmu.has(fileName)) {
+    const cached = cache.danmu.get(fileName);
+    if (Date.now() - cached.timestamp < CACHE_TTL) {
+      OmniBox.log("info", `使用缓存的弹幕数据: ${fileName}`);
+      return cached.data;
+    } else {
+      cache.danmu.delete(fileName);
+    }
+  }
+  
   try {
     OmniBox.log("info", `匹配弹幕: fileName=${fileName}`);
     const matchUrl = `${DANMU_API}/api/v2/match`;
@@ -289,7 +331,9 @@ async function matchDanmu(fileName) {
     else if (episodeTitle) danmakuName = episodeTitle;
     const danmakuURL = `${DANMU_API}/api/v2/comment/${episodeId}?format=xml`;
     OmniBox.log("info", `弹幕匹配成功: ${danmakuName} (episodeId: ${episodeId})`);
-    return [{ name: danmakuName, url: danmakuURL }];
+    const result = [{ name: danmakuName, url: danmakuURL }];
+    cache.danmu.set(fileName, { data: result, timestamp: Date.now() });
+    return result;
   } catch (error) {
     OmniBox.log("warn", `弹幕匹配失败: ${error.message}`);
     return [];
@@ -329,12 +373,18 @@ async function inferFileNameFromDetail(videoId, playId) {
   try {
     const detailResponse = await requestSiteAPI({ ac: "detail", ids: videoId });
     if (!detailResponse.list || detailResponse.list.length === 0) return "";
+    
     const video = detailResponse.list[0];
     const videoName = video.vod_name || video.VodName || "";
     const playURL = video.vod_play_url || video.VodPlayURL || "";
+    
     if (!videoName || !playURL) return "";
+    
     const segments = playURL.split("#").filter((s) => s.trim());
-    if (segments.length === 1) return videoName;
+    if (segments.length === 1) {
+      return videoName;
+    }
+    
     let epNum = 0;
     for (let idx = 0; idx < segments.length; idx++) {
       const seg = segments[idx];
@@ -349,7 +399,10 @@ async function inferFileNameFromDetail(videoId, playId) {
         }
       }
     }
-    if (epNum > 0) return epNum < 10 ? `${videoName} S01E0${epNum}` : `${videoName} S01E${epNum}`;
+    
+    if (epNum > 0) {
+      return epNum < 10 ? `${videoName} S01E0${epNum}` : `${videoName} S01E${epNum}`;
+    }
     return videoName;
   } catch (error) {
     OmniBox.log("warn", `获取详情失败，无法推断集数: ${error.message}`);
@@ -375,8 +428,7 @@ async function home(params) {
     videos = await enrichVideosWithDetails(videos);
     return { class: classes, list: videos };
   } catch (error) {
-    OmniBox.log("error", `获取首页数据失败: ${error.message}`);
-    return { class: [], list: [] };
+    return handleError(error, "获取首页数据", { class: [], list: [] });
   }
 }
 
@@ -384,8 +436,10 @@ async function category(params) {
   const defaultResult = { page: 1, pagecount: 0, total: 0, list: [] };
   try {
     const categoryId = params?.categoryId;
+    if (!categoryId || typeof categoryId !== 'string' || categoryId.trim() === '') {
+      throw new Error("分类ID不能为空或无效");
+    }
     const page = normalizePage(params?.page);
-    if (!categoryId) throw new Error("分类ID不能为空");
     OmniBox.log("info", `获取分类数据: categoryId=${categoryId}, page=${page}`);
     const response = await requestSiteAPI({ ac: "videolist", t: categoryId, pg: String(page) });
     const videos = formatVideos(response.list || []);
@@ -396,8 +450,7 @@ async function category(params) {
       list: videos,
     };
   } catch (error) {
-    OmniBox.log("error", `获取分类数据失败: ${error.message}`);
-    return defaultResult;
+    return handleError(error, "获取分类数据", defaultResult);
   }
 }
 
@@ -405,14 +458,15 @@ async function detail(params) {
   const defaultResult = { list: [] };
   try {
     const videoId = params?.videoId;
-    if (!videoId) throw new Error("视频ID不能为空");
+    if (!videoId || typeof videoId !== 'string' || videoId.trim() === '') {
+      throw new Error("视频ID不能为空或无效");
+    }
     OmniBox.log("info", `获取视频详情: videoId=${videoId}`);
     const response = await requestSiteAPI({ ac: "detail", ids: videoId });
     const videos = formatDetailVideos(response.list || []);
     return { list: videos };
   } catch (error) {
-    OmniBox.log("error", `获取视频详情失败: ${error.message}`);
-    return defaultResult;
+    return handleError(error, "获取视频详情", defaultResult);
   }
 }
 
@@ -442,8 +496,7 @@ async function search(params) {
       list: videos,
     };
   } catch (error) {
-    OmniBox.log("error", `搜索视频失败: ${error.message}`);
-    return defaultResult;
+    return handleError(error, "搜索视频", defaultResult);
   }
 }
 
@@ -451,24 +504,42 @@ async function play(params) {
   const defaultResult = { urls: [], flag: "", header: {} };
   try {
     const playId = params?.playId;
+    if (!playId || typeof playId !== 'string' || playId.trim() === '') {
+      throw new Error("播放地址ID不能为空或无效");
+    }
     const flag = params?.flag || "";
-    if (!playId) throw new Error("播放地址ID不能为空");
+    
+    let processedPlayId = playId;
+    try {
+      processedPlayId = decodeURIComponent(playId);
+    } catch (e) {
+      processedPlayId = playId;
+    }
+    
     const videoId = extractVideoIdFromFlag(flag);
-    OmniBox.log("info", `获取播放地址: playId=${playId}, flag=${flag}, videoId=${videoId}`);
-    const parse = /\.(m3u8|mp4)$/.test(playId) ? 0 : 1;
-    let playResponse = { urls: [{ name: "播放", url: playId }], flag: flag, header: {}, parse: parse };
+    OmniBox.log("info", `获取播放地址: playId=${processedPlayId}, flag=${flag}, videoId=${videoId}`);
+    
+    const parse = /\.(m3u8|mp4|flv|avi|wmv|mov|mkv|webm)$/i.test(processedPlayId) ? 0 : 1;
+    let playResponse = { 
+      urls: [{ name: "播放", url: processedPlayId }], 
+      flag: flag, 
+      header: {}, 
+      parse: parse 
+    };
+    
     if (DANMU_API && videoId) {
-      let fileName = await inferFileNameFromDetail(videoId, playId);
-      if (!fileName) fileName = inferFileNameFromURL(playId);
+      let fileName = await inferFileNameFromDetail(videoId, processedPlayId);
+      if (!fileName) fileName = inferFileNameFromURL(processedPlayId);
+      
       if (fileName) {
         const danmakuList = await matchDanmu(fileName);
         if (danmakuList.length > 0) playResponse.danmaku = danmakuList;
       }
     }
+    
     return playResponse;
   } catch (error) {
-    OmniBox.log("error", `获取播放地址失败: ${error.message}`);
-    return { ...defaultResult, flag: params?.flag || "" };
+    return handleError(error, "获取播放地址", { ...defaultResult, flag: params?.flag || "" });
   }
 }
 
